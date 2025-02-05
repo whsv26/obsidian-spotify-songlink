@@ -1,81 +1,141 @@
-import { App, Editor, MarkdownView, Modal, Notice, Plugin, PluginSettingTab, Setting } from 'obsidian';
+import {
+	App,
+	Notice,
+	ObsidianProtocolData,
+	Plugin,
+	PluginSettingTab, requestUrl,
+	Setting, TFile
+} from 'obsidian';
 
-// Remember to rename these classes and interfaces!
-
-interface MyPluginSettings {
-	mySetting: string;
+interface SpotifySongLinkPluginSettings {
+	noteFilenameTemplate: string;
+	noteContentTemplate: string;
+	noteDirectory: string;
 }
 
-const DEFAULT_SETTINGS: MyPluginSettings = {
-	mySetting: 'default'
+const defaultNoteContentTemplate = `---
+created: "{{now}}"
+title: "{{title}}"
+artist: "{{artistName}}"
+thumbnail: "{{thumbnailUrl}}"
+youtube: "{{youtubeUrl}}"
+youtube-music: "{{youtubeMusicUrl}}"
+spotify: "{{spotifyUrl}}"
+apple-music: "{{appleMusicUrl}}"
+amazon-music: "{{amazonMusicUrl}}"
+songlink: "{{songlinkUrl}}"
+---`;
+
+const DEFAULT_SETTINGS: SpotifySongLinkPluginSettings = {
+	noteFilenameTemplate: '{{artistName}} - {{title}}',
+	noteContentTemplate: defaultNoteContentTemplate,
+	noteDirectory: "Music",
 }
 
-export default class MyPlugin extends Plugin {
-	settings: MyPluginSettings;
+interface SongLinkResponse {
+	linksByPlatform: LinksByPlatform,
+	pageUrl: string,
+	entitiesByUniqueId: { [key: string]: Entity; }
+}
+
+interface Entity {
+	type: string;
+	title: string;
+	artistName: string;
+	thumbnailUrl: string;
+	apiProvider: string;
+}
+
+interface LinksByPlatform {
+	amazonMusic: Link
+	amazonStore: Link
+	audiomack: Link
+	anghami: Link
+	boomplay: Link
+	deezer: Link
+	appleMusic: Link
+	itunes: Link
+	pandora: Link
+	soundcloud: Link
+	tidal: Link
+	youtube: Link
+	youtubeMusic: Link
+	spotify: Link
+}
+
+interface Link {
+	url: string;
+}
+
+export default class SpotifySongLinkPlugin extends Plugin {
+	settings: SpotifySongLinkPluginSettings;
 
 	async onload() {
 		await this.loadSettings();
 
-		// This creates an icon in the left ribbon.
-		const ribbonIconEl = this.addRibbonIcon('dice', 'Sample Plugin', (evt: MouseEvent) => {
-			// Called when the user clicks the icon.
-			new Notice('This is a notice!');
-		});
-		// Perform additional things with the ribbon
-		ribbonIconEl.addClass('my-plugin-ribbon-class');
-
-		// This adds a status bar item to the bottom of the app. Does not work on mobile apps.
-		const statusBarItemEl = this.addStatusBarItem();
-		statusBarItemEl.setText('Status Bar Text');
-
-		// This adds a simple command that can be triggered anywhere
-		this.addCommand({
-			id: 'open-sample-modal-simple',
-			name: 'Open sample modal (simple)',
-			callback: () => {
-				new SampleModal(this.app).open();
-			}
-		});
-		// This adds an editor command that can perform some operation on the current editor instance
-		this.addCommand({
-			id: 'sample-editor-command',
-			name: 'Sample editor command',
-			editorCallback: (editor: Editor, view: MarkdownView) => {
-				console.log(editor.getSelection());
-				editor.replaceSelection('Sample Editor Command');
-			}
-		});
-		// This adds a complex command that can check whether the current state of the app allows execution of the command
-		this.addCommand({
-			id: 'open-sample-modal-complex',
-			name: 'Open sample modal (complex)',
-			checkCallback: (checking: boolean) => {
-				// Conditions to check
-				const markdownView = this.app.workspace.getActiveViewOfType(MarkdownView);
-				if (markdownView) {
-					// If checking is true, we're simply "checking" if the command can be run.
-					// If checking is false, then we want to actually perform the operation.
-					if (!checking) {
-						new SampleModal(this.app).open();
-					}
-
-					// This command will only show up in Command Palette when the check function returns true
-					return true;
-				}
-			}
-		});
-
 		// This adds a settings tab so the user can configure various aspects of the plugin
-		this.addSettingTab(new SampleSettingTab(this.app, this));
+		this.addSettingTab(new SpotifySongLinkSettingTab(this.app, this));
 
-		// If the plugin hooks up any global DOM events (on parts of the app that doesn't belong to this plugin)
-		// Using this function will automatically remove the event listener when this plugin is disabled.
-		this.registerDomEvent(document, 'click', (evt: MouseEvent) => {
-			console.log('click', evt);
-		});
+		this.registerObsidianProtocolHandler(
+			"spotify-songlink-add-song",
+			async (params: ObsidianProtocolData) => {
 
-		// When registering intervals, this function will automatically clear the interval when the plugin is disabled.
-		this.registerInterval(window.setInterval(() => console.log('setInterval'), 5 * 60 * 1000));
+				const spotifyUrl = params.spotifyUrl;
+
+				if (!spotifyUrl) {
+					new Notice("spotifyUrl is empty")
+					return;
+				}
+
+				const queryParams = new URLSearchParams({url: spotifyUrl});
+
+				const response: SongLinkResponse =
+					await requestUrl(`https://api.song.link/v1-alpha.1/links?${queryParams}`).json;
+
+				const entity = Object.values(response.entitiesByUniqueId).find(e => e.apiProvider === "spotify")
+
+				const now = new Date().toISOString().split('T')[0];
+				const title = entity?.title;
+				const artistName = entity?.artistName;
+				const thumbnailUrl = entity?.thumbnailUrl;
+				const youtubeUrl = response.linksByPlatform.youtube.url;
+				const youtubeMusicUrl = response.linksByPlatform.youtubeMusic.url;
+				const appleMusicUrl = response.linksByPlatform.appleMusic.url;
+				const amazonMusicUrl = response.linksByPlatform.amazonMusic.url;
+				const songlinkUrl = response.pageUrl;
+
+				const settings = this.settings
+
+				const noteFilename = settings.noteFilenameTemplate
+					.split("{{now}}").join(now)
+					.split("{{title}}").join(title)
+					.split("{{artistName}}").join(artistName)
+
+				const noteContent = settings.noteContentTemplate
+					.split("{{now}}").join(now)
+					.split("{{title}}").join(title)
+					.split("{{artistName}}").join(artistName)
+					.split("{{thumbnailUrl}}").join(thumbnailUrl)
+					.split("{{youtubeUrl}}").join(youtubeUrl)
+					.split("{{youtubeMusicUrl}}").join(youtubeMusicUrl)
+					.split("{{spotifyUrl}}").join(spotifyUrl)
+					.split("{{appleMusicUrl}}").join(appleMusicUrl)
+					.split("{{amazonMusicUrl}}").join(amazonMusicUrl)
+					.split("{{songlinkUrl}}").join(songlinkUrl)
+
+				const newFilePath = `${settings.noteDirectory}/${noteFilename}.md`;
+				await this.app.vault.create(newFilePath, noteContent);
+
+				const newFile = this.app.vault.getAbstractFileByPath(newFilePath);
+
+				if (!(newFile instanceof TFile)) {
+					return;
+				}
+
+				const leaf = this.app.workspace.getLeaf(true);
+				await leaf.openFile(newFile);
+			},
+		);
 	}
 
 	onunload() {
@@ -91,26 +151,10 @@ export default class MyPlugin extends Plugin {
 	}
 }
 
-class SampleModal extends Modal {
-	constructor(app: App) {
-		super(app);
-	}
+class SpotifySongLinkSettingTab extends PluginSettingTab {
+	plugin: SpotifySongLinkPlugin;
 
-	onOpen() {
-		const {contentEl} = this;
-		contentEl.setText('Woah!');
-	}
-
-	onClose() {
-		const {contentEl} = this;
-		contentEl.empty();
-	}
-}
-
-class SampleSettingTab extends PluginSettingTab {
-	plugin: MyPlugin;
-
-	constructor(app: App, plugin: MyPlugin) {
+	constructor(app: App, plugin: SpotifySongLinkPlugin) {
 		super(app, plugin);
 		this.plugin = plugin;
 	}
@@ -121,13 +165,35 @@ class SampleSettingTab extends PluginSettingTab {
 		containerEl.empty();
 
 		new Setting(containerEl)
-			.setName('Setting #1')
-			.setDesc('It\'s a secret')
+			.setName('Note content template')
+			.setDesc('Available variables: {{now}}, {{title}}, {{artistName}}, {{thumbnailUrl}}, {{youtubeUrl}}, {{youtubeMusicUrl}}, {{spotifyUrl}}, {{appleMusicUrl}}, {{amazonMusicUrl}}, {{songlinkUrl}}')
 			.addText(text => text
-				.setPlaceholder('Enter your secret')
-				.setValue(this.plugin.settings.mySetting)
+				.setPlaceholder(DEFAULT_SETTINGS.noteContentTemplate)
+				.setValue(this.plugin.settings.noteContentTemplate)
 				.onChange(async (value) => {
-					this.plugin.settings.mySetting = value;
+					this.plugin.settings.noteContentTemplate = value;
+					await this.plugin.saveSettings();
+				}));
+
+		new Setting(containerEl)
+			.setName('Note filename template')
+			.setDesc('Available variables: {{now}}, {{title}}, {{artistName}}')
+			.addText(text => text
+				.setPlaceholder(DEFAULT_SETTINGS.noteFilenameTemplate)
+				.setValue(this.plugin.settings.noteFilenameTemplate)
+				.onChange(async (value) => {
+					this.plugin.settings.noteFilenameTemplate = value;
+					await this.plugin.saveSettings();
+				}));
+
+		new Setting(containerEl)
+			.setName('Note directory')
+			.setDesc('New notes will be created here')
+			.addText(text => text
+				.setPlaceholder(DEFAULT_SETTINGS.noteDirectory)
+				.setValue(this.plugin.settings.noteDirectory)
+				.onChange(async (value) => {
+					this.plugin.settings.noteDirectory = value;
 					await this.plugin.saveSettings();
 				}));
 	}
