@@ -7,7 +7,7 @@ import {
 	Setting, TFile
 } from 'obsidian';
 
-interface SpotifySongLinkPluginSettings {
+interface SongLinkPluginSettings {
 	noteFilenameTemplate: string;
 	noteContentTemplate: string;
 	noteDirectory: string;
@@ -18,15 +18,15 @@ created: "{{now}}"
 title: "{{title}}"
 artist: "{{artistName}}"
 thumbnail: "{{thumbnailUrl}}"
+spotify: "{{spotifyUrl}}"
 youtube: "{{youtubeUrl}}"
 youtube-music: "{{youtubeMusicUrl}}"
-spotify: "{{spotifyUrl}}"
 apple-music: "{{appleMusicUrl}}"
 amazon-music: "{{amazonMusicUrl}}"
 songlink: "{{songlinkUrl}}"
 ---`;
 
-const DEFAULT_SETTINGS: SpotifySongLinkPluginSettings = {
+const DEFAULT_SETTINGS: SongLinkPluginSettings = {
 	noteFilenameTemplate: '{{artistName}} - {{title}}',
 	noteContentTemplate: defaultNoteContentTemplate,
 	noteDirectory: "Music",
@@ -67,27 +67,27 @@ interface Link {
 	url: string;
 }
 
-export default class SpotifySongLinkPlugin extends Plugin {
-	settings: SpotifySongLinkPluginSettings;
+export default class SongLinkPlugin extends Plugin {
+	settings: SongLinkPluginSettings;
 
 	async onload() {
 		await this.loadSettings();
 
 		// This adds a settings tab so the user can configure various aspects of the plugin
-		this.addSettingTab(new SpotifySongLinkSettingTab(this.app, this));
+		this.addSettingTab(new SongLinkSettingTab(this.app, this));
 
 		this.registerObsidianProtocolHandler(
-			"spotify-songlink-add-song",
+			"songlink-add-song",
 			async (params: ObsidianProtocolData) => {
 
-				const spotifyUrl = params.spotifyUrl;
+				const url = params.url;
 
-				if (!spotifyUrl) {
-					new Notice("spotifyUrl is empty")
+				if (!url) {
+					new Notice("url is empty")
 					return;
 				}
 
-				const queryParams = new URLSearchParams({url: spotifyUrl});
+				const queryParams = new URLSearchParams({url: url});
 
 				const response: SongLinkResponse =
 					await requestUrl(`https://api.song.link/v1-alpha.1/links?${queryParams}`).json;
@@ -100,6 +100,7 @@ export default class SpotifySongLinkPlugin extends Plugin {
 				const thumbnailUrl = entity?.thumbnailUrl;
 				const youtubeUrl = response.linksByPlatform.youtube.url;
 				const youtubeMusicUrl = response.linksByPlatform.youtubeMusic.url;
+				const spotifyUrl = response.linksByPlatform.spotify.url;
 				const appleMusicUrl = response.linksByPlatform.appleMusic.url;
 				const amazonMusicUrl = response.linksByPlatform.amazonMusic.url;
 				const songlinkUrl = response.pageUrl;
@@ -151,10 +152,10 @@ export default class SpotifySongLinkPlugin extends Plugin {
 	}
 }
 
-class SpotifySongLinkSettingTab extends PluginSettingTab {
-	plugin: SpotifySongLinkPlugin;
+class SongLinkSettingTab extends PluginSettingTab {
+	plugin: SongLinkPlugin;
 
-	constructor(app: App, plugin: SpotifySongLinkPlugin) {
+	constructor(app: App, plugin: SongLinkPlugin) {
 		super(app, plugin);
 		this.plugin = plugin;
 	}
@@ -168,7 +169,6 @@ class SpotifySongLinkSettingTab extends PluginSettingTab {
 			.setName('Note content template')
 			.setDesc('Available variables: {{now}}, {{title}}, {{artistName}}, {{thumbnailUrl}}, {{youtubeUrl}}, {{youtubeMusicUrl}}, {{spotifyUrl}}, {{appleMusicUrl}}, {{amazonMusicUrl}}, {{songlinkUrl}}')
 			.addText(text => text
-				.setPlaceholder(DEFAULT_SETTINGS.noteContentTemplate)
 				.setValue(this.plugin.settings.noteContentTemplate)
 				.onChange(async (value) => {
 					this.plugin.settings.noteContentTemplate = value;
@@ -179,7 +179,6 @@ class SpotifySongLinkSettingTab extends PluginSettingTab {
 			.setName('Note filename template')
 			.setDesc('Available variables: {{now}}, {{title}}, {{artistName}}')
 			.addText(text => text
-				.setPlaceholder(DEFAULT_SETTINGS.noteFilenameTemplate)
 				.setValue(this.plugin.settings.noteFilenameTemplate)
 				.onChange(async (value) => {
 					this.plugin.settings.noteFilenameTemplate = value;
@@ -190,7 +189,6 @@ class SpotifySongLinkSettingTab extends PluginSettingTab {
 			.setName('Note directory')
 			.setDesc('New notes will be created here')
 			.addText(text => text
-				.setPlaceholder(DEFAULT_SETTINGS.noteDirectory)
 				.setValue(this.plugin.settings.noteDirectory)
 				.onChange(async (value) => {
 					this.plugin.settings.noteDirectory = value;
